@@ -1,0 +1,124 @@
+ name: Gemini Video Generation Workflow
+     2 
+     3 on:
+     4   workflow_dispatch:
+     5     inputs:
+     6       image_prompt:
+     7         description: 'MC Image Prompt'
+     8         required: true
+     9         default: 'An elegant and intelligent 30-year-old 
+       beautiful Japanese female MC, wearing a calm-colored dress, 
+       sitting in front of a microphone at a desk in a broadcast 
+       studio.'
+    10       speech_text:
+    11         description: 'MC Speech Text'
+    12         required: true
+    13         default:
+       '最新の音楽シーンをチェックするなら、この番組。来週のゲストは.
+       ..お楽しみに！Are you ready?'
+    14       output_filename:
+    15         description: 'Output video file name'
+    16         required: true
+    17         default: 'music_news_cm.mp4'
+    18 
+    19 jobs:
+    20   generate_video:
+    21     runs-on: ubuntu-latest
+    22     steps:
+    23       - name: Checkout repository
+    24         uses: actions/checkout@v4
+    25 
+    26       - name: Generate MC Image
+    27         id: generate_image
+    28         run: |
+    29           echo "Generating image..."
+    30           response=$(curl -s -X POST \
+    31             -H "Content-Type: application/json" \
+    32             -d '{
+    33               "prompt": "${{ github.event.inputs.image_prompt 
+       }}",
+    34               "model": "fal-ai/t2i/imagen4/ultra"
+    35             }' \
+    36 
+       "https://mcp-creatify-lipsync-20250719-010824-a071b7b8-8209946
+       73238.us-central1.run.app/t2i/fal/imagen4/ultra")
+    37 
+    38           echo "$response"
+    39           image_url=$(echo "$response" | jq -r
+       '.images[0].url')
+    40 
+    41           if [ -z "$image_url" ] || [ "$image_url" == "null" ]
+       ; then
+    42             echo "Error: Could not get image URL from 
+       response."
+    43             exit 1
+    44           fi
+    45 
+    46           echo "Downloading image from $image_url"
+    47           curl -s -o mc_image.png "$image_url"
+    48           echo "IMAGE_PATH=$(pwd)/mc_image.png" >> $GITHUB_ENV
+    49 
+    50       - name: Generate Speech
+    51         id: generate_speech
+    52         run: |
+    53           echo "Generating speech..."
+    54           response=$(curl -s -X POST \
+    55             -H "Content-Type: application/json" \
+    56             -d '{
+    57               "text": "${{ github.event.inputs.speech_text }}"
+       ,
+    58               "model": "fal-ai/t2s/minimax/speech-02-turbo"
+    59             }' \
+    60 
+       "https://mcp-creatify-lipsync-20250719-024457-8bc6d0d5-8209946
+       73238.us-central1.run.app/t2s/fal/minimax/speech-02-turbo")
+    61 
+    62           echo "$response"
+    63           audio_url=$(echo "$response" | jq -r '.audio_url')
+    64 
+    65           if [ -z "$audio_url" ] || [ "$audio_url" == "null" ]
+       ; then
+    66             echo "Error: Could not get audio URL from 
+       response."
+    67             exit 1
+    68           fi
+    69 
+    70           echo "Downloading audio from $audio_url"
+    71           curl -s -o mc_speech.mp3 "$audio_url"
+    72           echo "AUDIO_PATH=$(pwd)/mc_speech.mp3" >>
+       $GITHUB_ENV
+    73 
+    74       - name: Generate Lip-sync Video
+    75         id: generate_video
+    76         run: |
+    77           echo "Generating lipsync video..."
+    78           response=$(curl -s -X POST \
+    79             -H "Content-Type: application/json" \
+    80             -d '{
+    81               "image_url": "file://${{ env.IMAGE_PATH }}",
+    82               "audio_url": "file://${{ env.AUDIO_PATH }}",
+    83               "model": "fal-ai/v2v/creatify/lipsync"
+    84             }' \
+    85 
+       "https://mcp-creatify-lipsync-20250719-010824-a071b7b8-8209946
+       73238.us-central1.run.app/v2v/fal/creatify/lipsync")
+    86 
+    87           echo "$response"
+    88           video_url=$(echo "$response" | jq -r '.video_url')
+    89 
+    90           if [ -z "$video_url" ] || [ "$video_url" == "null" ]
+       ; then
+    91             echo "Error: Could not get video URL from 
+       response."
+    92             exit 1
+    93           fi
+    94 
+    95           echo "Downloading video from $video_url"
+    96           curl -s -o "${{ github.event.inputs.output_filename 
+       }}" "$video_url"
+    97 
+    98       - name: Upload Video Artifact
+    99         uses: actions/upload-artifact@v4
+   100         with:
+   101           name: generated-video
+   102           path: ${{ github.event.inputs.output_filename }}
